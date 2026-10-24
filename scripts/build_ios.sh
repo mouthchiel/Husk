@@ -48,7 +48,7 @@ export PKG_CONFIG_LIBDIR="$PREFIX/lib/pkgconfig:$PREFIX/share/pkgconfig"
 unset PKG_CONFIG_PATH
 
 banner() { printf '\n\033[0;32m=== %s ===\033[0m\n' "$*"; }
-fail()   { printf '\033[0;31m[FAIL] %s (see %s)\033[0m\n' "$1" "$2"; exit 1; }
+fail()   { printf '\033[0;31m[FAIL] %s (see %s)\033[0m\n' "$1" "$2"; tail -n 80 "$2" >&2; exit 1; }
 
 done_stage() { [ -f "$STAMPS/$1" ]; }
 mark_stage() { touch "$STAMPS/$1"; }
@@ -160,6 +160,17 @@ stage_qemu() {
     local log="$LOGS/qemu.log"
     done_stage qemu && { echo "[skip] qemu"; return 0; }
     apply_patch qemu-10.0.12-utm qemu-10.0.12-utm.patch
+    # macOS arm64 and iOS arm64 have the same CPU and Darwin system name.
+    # Meson otherwise tries to run iOS compiler probes on the Mac. QEMU's
+    # configure automatically layers this file after its generated cross file.
+    mkdir -p "$dir/configs/meson"
+    cat > "$dir/configs/meson/darwin.txt" <<'EOF'
+[properties]
+needs_exe_wrapper = true
+[host_machine]
+kernel = 'xnu'
+subsystem = 'ios'
+EOF
     banner "building qemu (this is the long one)"
     rm -rf "$dir/_husk_build"; mkdir -p "$dir/_husk_build"
     ( cd "$dir/_husk_build" \
