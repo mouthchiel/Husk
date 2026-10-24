@@ -85,6 +85,11 @@ HuskDualMapping husk_ios_jit_allocate(size_t bytes);
  */
 HUSK_EXPORT bool husk_ios_jit_prewarm(size_t bytes);
 
+/* Pre-iOS-26 TrollStore/jailbreak route. Never executes a debugger breakpoint;
+ * tries MAP_JIT and then plain RW/RX aliases, including an execution self-test.
+ * A failed call may retry after the process becomes CS_DEBUGGED. */
+HUSK_EXPORT bool husk_ios_jit_prewarm_self(size_t bytes);
+
 /*
  * The native runtime shares the prewarmed region with QEMU: it takes bytes from the bottom, QEMU the top. Call before
  * writing anything below `end` (an offset from the region's start); false means QEMU holds that part.

@@ -1,0 +1,54 @@
+name: Build iOS 16 TrollStore JIT fix
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - fix/ios16-trollstore-jit
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Husk 3.0 vendors a Swift 6.4 StikJIT interface and uses the iOS 27 SDK.
+    runs-on: xcode-27
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build tools
+        run: |
+          brew install meson ninja pkgconf xcodegen qemu autoconf automake libtool bison
+          python3 -m venv .venv-build
+          .venv-build/bin/pip install PyYAML packaging
+          echo "$GITHUB_WORKSPACE/.venv-build/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+          if ! command -v rustup >/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/husk-rustup.sh
+            sh /tmp/husk-rustup.sh -y --profile minimal
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+      - name: Download official 3.0 resource donor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build/donor
+          gh release download 3.0 --repo Leviidev/Husk --pattern Husk.tipa --dir build/donor
+      - name: Build patched app and QEMU
+        run: bash scripts/build_ios16_fixed.sh "$GITHUB_WORKSPACE/build/donor/Husk.tipa"
+      - name: Upload TIPA and checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: Husk-iOS16-JIT-fixed
+          path: |
+            build/Husk-iOS16-JIT-fixed.tipa
+            build/Husk-iOS16-JIT-fixed.tipa.sha256
+            build/ios16-donor-sha256.txt
+          if-no-files-found: error
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Husk-iOS16-build-logs
+          path: build/logs/
+          if-no-files-found: ignore

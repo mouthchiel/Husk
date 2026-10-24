@@ -81,13 +81,20 @@ enum JITBootstrap {
         if !isDebuggerAttached { selfGrantTried = true }
         // Before iOS 26, unless StikDebug's script is what attached, no brk: TrollStore's enable-jit (and its Open with JIT)
         // attaches for 100 ms and services nothing, and a brk in that window stops Husk for good (TrollStore then says
-        // "trollstorehelper returned 3"). A debugged process there makes its own executable memory anyway: QEMU maps its
-        // buffer with MAP_JIT and the translation layer makes its region itself.
+        // "trollstorehelper returned 3"). MAP_JIT can fail with EINVAL on iOS 16 while ordinary RW/RX aliases still execute.
+        // Claim and test those aliases through the self-only allocator, without issuing even a probe breakpoint.
         if canGrantOwnJIT && !stikDebugMayServiceTraps {
             selfGrantTried = true
+            if husk_ios_jit_prewarm_self(jitBytes) {
+                prewarmed = true
+                lastFailure = nil
+                HuskLog.log("jit", "ios16-fix: self-only JIT region secured; no debugger traps or detach needed")
+                return true
+            }
             let works = mapJITWorks
-            HuskLog.log("jit", "not trapping for a JIT region (no StikDebug); MAP_JIT \(works ? "executes" : "does not execute") here")
-            if works { lastFailure = nil }
+            HuskLog.log("jit", "self-only allocation failed; MAP_JIT fallback \(works ? "executes" : "does not execute") here")
+            lastFailure = works ? nil : "Husk could not allocate and execute a JIT region using either MAP_JIT or plain RW/RX memory. "
+                + "Open Husk with TrollStore's Open with JIT, then retry. The log records which allocation step failed."
             return works
         }
         HuskLog.log("jit", "claiming \(jitBytes / (1024 * 1024)) MiB of JIT memory now, "

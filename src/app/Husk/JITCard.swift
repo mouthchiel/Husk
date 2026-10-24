@@ -107,8 +107,10 @@ struct JITCard: View {
                 .font(.title2)
                 .foregroundStyle(.green)
             VStack(alignment: .leading, spacing: 2) {
-                Text("JIT is on").font(.headline)
-                Text("Games and Android can run.").font(.subheadline).foregroundStyle(.secondary)
+                Text(JITBootstrap.isLive ? "JIT is on" : "Debugger flag is set").font(.headline)
+                Text(JITBootstrap.isLive ? "Executable memory is ready."
+                     : "Executable memory will be checked when you start.")
+                    .font(.subheadline).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }

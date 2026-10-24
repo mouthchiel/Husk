@@ -462,17 +462,52 @@ static HuskDualMapping husk_ios_jit_allocate_real(size_t bytes);
 
 static HuskDualMapping husk_prewarmed;
 static bool husk_prewarm_done;
+static bool husk_prewarm_debugged;
+static bool husk_prewarm_traps_tried;
+static pthread_mutex_t husk_prewarm_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static bool husk_prewarm_region(size_t bytes, bool allow_traps)
+{
+    pthread_mutex_lock(&husk_prewarm_lock);
+    if (husk_prewarmed.rw_addr) {
+        pthread_mutex_unlock(&husk_prewarm_lock);
+        return true;
+    }
+
+    /* A device check may run before TrollStore enables JIT. That failure must
+     * not poison the process after CS_DEBUGGED changes. A self-only attempt
+     * also must not consume StikDebug's later opportunity to service a trap. */
+    bool debugged = husk_kernel_debugged();
+    bool newly_debugged = debugged && !husk_prewarm_debugged;
+    bool first_trap_attempt = allow_traps && !husk_prewarm_traps_tried;
+    if (husk_prewarm_done && !newly_debugged && !first_trap_attempt) {
+        pthread_mutex_unlock(&husk_prewarm_lock);
+        return false;
+    }
+
+    husk_prewarm_done = true;
+    husk_prewarm_debugged = debugged;
+    husk_prewarm_traps_tried = allow_traps;
+    husk_prewarmed = allow_traps ? husk_ios_jit_allocate_real(bytes)
+                               : husk_self_dual_mapping(bytes);
+    fprintf(stderr, "[husk-jit] prewarm %s: %zu bytes\n",
+            husk_prewarmed.rw_addr ? "OK" : "FAILED", bytes);
+    bool ok = husk_prewarmed.rw_addr != NULL;
+    pthread_mutex_unlock(&husk_prewarm_lock);
+    return ok;
+}
 
 HUSK_EXPORT bool husk_ios_jit_prewarm(size_t bytes)
 {
-    if (husk_prewarm_done) {
-        return husk_prewarmed.rw_addr != NULL;
-    }
-    husk_prewarm_done = true;
-    husk_prewarmed = husk_ios_jit_allocate_real(bytes);
-    fprintf(stderr, "[husk-jit] prewarm %s: %zu bytes\n",
-            husk_prewarmed.rw_addr ? "OK" : "FAILED", bytes);
-    return husk_prewarmed.rw_addr != NULL;
+    return husk_prewarm_region(bytes, true);
+}
+
+HUSK_EXPORT bool husk_ios_jit_prewarm_self(size_t bytes)
+{
+    /* No brk, including when this fails: TrollStore's temporary debugger
+     * attachment does not service breakpoint RPCs. The allocator itself checks
+     * the OS and permissions and executes a self-test before returning memory. */
+    return husk_prewarm_region(bytes, false);
 }
 
 /* The held region, for the native runtime (translation-layer/husk-tl-load.c looks this up by name). */
@@ -855,6 +890,7 @@ HuskDualMapping husk_ios_jit_allocate(size_t bytes)
     return husk_ios_jit_allocate_real(bytes);
 }
 bool husk_ios_jit_prewarm(size_t bytes) { (void)bytes; return false; }
+bool husk_ios_jit_prewarm_self(size_t bytes) { (void)bytes; return false; }
 bool husk_ios_jit_reserve_bottom(size_t end) { (void)end; return true; }
 void husk_ios_jit_release(HuskDualMapping *m) { (void)m; }
 void husk_ios_jit_detach(void) {}
