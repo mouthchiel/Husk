@@ -52,8 +52,34 @@ jobs:
         run: |
           mkdir -p build/donor
           gh release download 3.0 --repo Leviidev/Husk --pattern Husk.tipa --dir build/donor
+      - name: Restore compiled dependencies
+        id: build-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build/ios-arm64
+            build/stamps
+            third_party/build
+            third_party/gpu
+            guests/phase0
+            src/rppairing-ios/target
+          key: husk3-ios27-${{ runner.arch }}-${{ hashFiles('scripts/build_ios.sh', 'scripts/build_gpu_ios.sh', 'scripts/sources.sh', 'patches/**') }}-${{ github.run_id }}
+          restore-keys: |
+            husk3-ios27-${{ runner.arch }}-${{ hashFiles('scripts/build_ios.sh', 'scripts/build_gpu_ios.sh', 'scripts/sources.sh', 'patches/**') }}-
       - name: Build patched app and QEMU
         run: bash scripts/build_ios16_fixed.sh "$GITHUB_WORKSPACE/build/donor/Husk.tipa"
+      - name: Save compiled dependencies for repair retries
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            build/ios-arm64
+            build/stamps
+            third_party/build
+            third_party/gpu
+            guests/phase0
+            src/rppairing-ios/target
+          key: ${{ steps.build-cache.outputs.cache-primary-key }}
       - name: Upload TIPA and checksum
         uses: actions/upload-artifact@v4
         with:

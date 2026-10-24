@@ -141,3 +141,15 @@ with tempfile.TemporaryDirectory(prefix="husk-prewarm-") as temp:
                                 "-o", str(temp / "smoke")], check=True)
     subprocess.run([str(temp / "smoke")], check=True)
     print("PASS exported declaration and non-iOS stub compile and link")
+    # Visibility attributes do not override QEMU's Darwin export allowlist.
+    # Execute the production integration block on a tiny symbol list, twice.
+    integration = (ROOT / "scripts/integrate_husk.sh").read_text()
+    export_code = integration.split('python3 - "$Q" <<\'PY2\'\n', 1)[1].split('\nPY2', 1)[0]
+    symbols = temp / "qemu/system/qemu.symbols"
+    symbols.parent.mkdir(parents=True)
+    symbols.write_text("{\n  qemu_init;\n};\n")
+    for _ in range(2):
+        subprocess.run([os.sys.executable, "-", str(temp / "qemu")],
+                       input=export_code, text=True, check=True)
+        assert symbols.read_text().count("  husk_ios_jit_prewarm_self;") == 1
+    print("PASS Darwin export integration includes new API and is idempotent")

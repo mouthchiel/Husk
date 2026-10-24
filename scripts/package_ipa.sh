@@ -64,13 +64,16 @@ xcodebuild -project "$HUSK_ROOT/src/app/Husk.xcodeproj" -scheme Husk \
     CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
     build 2>&1 | tee "$DD/build.log" | grep -E "error:|BUILD (SUCCEEDED|FAILED)" || true
 
+mkdir -p "$HUSK_ROOT/build/logs"
+cp "$DD/build.log" "$HUSK_ROOT/build/logs/app-build.log"
+
 # A failed build used to sail straight past this: the previous .app is still in
 # DerivedData, so validation and packaging both succeed and produce an IPA of
 # the LAST build. Shipping a stale binary silently is the worst outcome here --
 # it looks exactly like a fix that did not work.
 if ! grep -q "BUILD SUCCEEDED" "$DD/build.log"; then
     echo "build failed; refusing to package a stale app" >&2
-    grep -E "error:" "$DD/build.log" | head -10 >&2
+    tail -n 80 "$DD/build.log" >&2
     exit 1
 fi
 
