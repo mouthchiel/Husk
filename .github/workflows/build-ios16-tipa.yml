@@ -8,6 +8,11 @@ on:
 
 permissions:
   contents: read
+  actions: write
+
+concurrency:
+  group: husk-ios16-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -16,6 +21,19 @@ jobs:
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
+      - name: Stop superseded builds on this fix branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Initial runs predate the concurrency group. Cancel only older runs
+          # of this same workflow and branch, never another project workflow.
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs?branch=fix%2Fios16-trollstore-jit&per_page=100" \
+            --jq ".workflow_runs[] | select(.path == \".github/workflows/build-ios16-tipa.yml\" and .run_number < $GITHUB_RUN_NUMBER and (.status == \"in_progress\" or .status == \"queued\")) | .id" \
+            > /tmp/husk-obsolete-runs.txt
+          while read -r run_id; do
+            [ -n "$run_id" ] || continue
+            gh api --method POST "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/cancel" || true
+          done < /tmp/husk-obsolete-runs.txt
       - name: Install build tools
         run: |
           brew install meson ninja pkgconf xcodegen qemu autoconf automake libtool bison

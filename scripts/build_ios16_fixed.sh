@@ -1,7 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: GPL-2.0-or-later
-# Rebuild the app and QEMU with this fix. Reuse only the official 3.0 PS4
-# module and optional Android resources, which ci_build.sh does not produce.
+# Rebuild the app and QEMU with this fix. Reuse official 3.0 graphics, PS4,
+# boot and Android resources that are unchanged by this patch.
 # Usage: bash scripts/build_ios16_fixed.sh /absolute/path/to/Husk.tipa
 set -euo pipefail
 HUSK_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -62,6 +62,17 @@ with zipfile.ZipFile(donor) as archive:
             shutil.copyfileobj(src, dest)
     copy_member(prefix + 'Frameworks/libhuskps4.dylib',
                 root / 'build/ios-arm64/lib/libhuskps4.dylib')
+    copy_member(prefix + 'Frameworks/libANGLE-shared.dylib',
+                root / 'build/ios-arm64/sysroot/lib/libANGLE-shared.dylib')
+    for name in archive.namelist():
+        selected = prefix + 'Frameworks/MoltenVK.framework/'
+        if name.startswith(selected) and not name.endswith('/'):
+            relative = PurePosixPath(name[len(selected):])
+            if relative.is_absolute() or '..' in relative.parts:
+                raise SystemExit('ERROR: unsafe MoltenVK resource path')
+            copy_member(name, root / 'build/ios16-donor/MoltenVK.framework' / str(relative))
+    for name in ['vmlinuz-virt', 'initramfs-virt']:
+        copy_member(prefix + name, root / 'guests/phase0' / name)
     for source_dir, target_dir in [('java-runtime', 'build/java-runtime'),
                                     ('android-system', 'build/android-system')]:
         selected = prefix + source_dir + '/'
@@ -78,6 +89,24 @@ with zipfile.ZipFile(donor) as archive:
 (root / 'build/ios16-donor-sha256.txt').write_text(digest + '  ' + donor.name + '\n')
 print('Staged official 3.0 resources; donor SHA-256:', digest)
 PY
+
+# These graphics binaries are unchanged by the fix and already run on iOS 16.
+# Stage their headers/container rather than spending hours rebuilding WebKit
+# and SPIRV tools on a small hosted runner. Husk and QEMU are still recompiled.
+if [ ! -d build/ios-arm64/lib/MoltenVK.xcframework ]; then
+    xcodebuild -create-xcframework -framework "$HUSK_ROOT/build/ios16-donor/MoltenVK.framework" \
+        -output "$HUSK_ROOT/build/ios-arm64/lib/MoltenVK.xcframework"
+fi
+if [ ! -f build/ios-arm64/sysroot/include/EGL/egl.h ]; then
+    ANGLE_HEADERS="$HUSK_ROOT/third_party/gpu/angle-headers"
+    if [ ! -d "$ANGLE_HEADERS/.git" ]; then
+        mkdir -p "$(dirname "$ANGLE_HEADERS")"
+        git clone --depth 1 --filter=blob:none --sparse https://github.com/WebKit/WebKit.git "$ANGLE_HEADERS"
+    fi
+    git -C "$ANGLE_HEADERS" sparse-checkout set Source/ThirdParty/ANGLE/include
+    mkdir -p build/ios-arm64/sysroot/include
+    rsync -a "$ANGLE_HEADERS/Source/ThirdParty/ANGLE/include/" build/ios-arm64/sysroot/include/
+fi
 
 mkdir -p build/logs
 set +e

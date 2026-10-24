@@ -41,7 +41,9 @@ step "integrate Husk sources into QEMU, then rebuild it"
 ./scripts/build_ios.sh qemurebuild
 
 step "guest kernel + firmware"
-./scripts/fetch_phase0_guest.sh
+if [ ! -s guests/phase0/vmlinuz-virt ] || [ ! -s guests/phase0/initramfs-virt ]; then
+    ./scripts/fetch_phase0_guest.sh
+fi
 
 if [ ! -d build/ios-arm64/lib/MoltenVK.xcframework ]; then
     step "MoltenVK (Vulkan over Metal, for Unreal Engine games)"
